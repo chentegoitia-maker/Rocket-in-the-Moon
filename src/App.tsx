@@ -11,8 +11,7 @@ import {
 } from "firebase/firestore";
 import { 
   AppView, 
-  User, 
-  PhenomenonType 
+  User 
 } from './types';
 import { store } from './services/mockStore';
 import Login from './views/Login';
@@ -52,41 +51,30 @@ const App: React.FC = () => {
     neto -= economy.costoVida;
     details.push(`Vida: -${economy.costoVida}Bs`);
     let totalCertDiv = 0;
-    const certificados = Object.entries(currentUser.certificados);
-    certificados.forEach(([rubro, qty]) => {
+    Object.entries(currentUser.certificados).forEach(([rubro, qty]) => {
       const certData = economy.certificados[rubro];
       if (certData) {
-        const ganancia = (certData.precio * certData.rendimiento / 100) * (qty as number);
-        totalCertDiv += ganancia;
+        totalCertDiv += (certData.precio * certData.rendimiento / 100) * (qty as number);
       }
     });
     if (totalCertDiv > 0) {
       neto += totalCertDiv;
       details.push(`Prod: +${totalCertDiv.toFixed(2)}Bs`);
     } else {
-      const taxInact = (currentUser.saldo * economy.impuestoInactividad / 100);
-      neto -= taxInact;
-      details.push(`Inact: -${taxInact.toFixed(2)}Bs`);
+      const tax = (currentUser.saldo * economy.impuestoInactividad / 100);
+      neto -= tax;
+      details.push(`Inact: -${tax.toFixed(2)}Bs`);
     }
     let totalStockDiv = 0;
-    const acciones = Object.entries(currentUser.acciones);
-    acciones.forEach(([rubro, qty]) => {
+    Object.entries(currentUser.acciones).forEach(([rubro, qty]) => {
       const stock = market.find(s => s.rubro === rubro);
       if (stock) {
-        const divAcc = (stock.precioVenta * economy.dividendoAccionPct / 100) * (qty as number);
-        totalStockDiv += divAcc;
+        totalStockDiv += (stock.precioVenta * economy.dividendoAccionPct / 100) * (qty as number);
       }
     });
     if (totalStockDiv > 0) {
       neto += totalStockDiv;
       details.push(`Divs: +${totalStockDiv.toFixed(2)}Bs`);
-    }
-    const cycleStart = (cycleId - 1) * 300 * 1000;
-    const inversionReciente = currentUser.ultimoInversionCiclo && currentUser.ultimoInversionCiclo >= cycleStart;
-    if (!inversionReciente) {
-      const taxNoInv = (currentUser.saldo * economy.impuestoNoInversion / 100);
-      neto -= taxNoInv;
-      details.push(`No Inv: -${taxNoInv.toFixed(2)}Bs`);
     }
     if (db) {
       const userRef = doc(db, "users", currentUser.id);
@@ -94,22 +82,17 @@ const App: React.FC = () => {
         await runTransaction(db, async (tx) => {
           const snap = await tx.get(userRef);
           if (snap.exists()) {
-            const nuevoSaldo = (snap.data().saldo || 0) + neto;
-            const nuevosCiclos = (snap.data().ciclosJugados || 0) + 1;
-            tx.update(userRef, { saldo: nuevoSaldo, ciclosJugados: nuevosCiclos });
+            tx.update(userRef, { 
+              saldo: (snap.data().saldo || 0) + neto, 
+              ciclosJugados: (snap.data().ciclosJugados || 0) + 1 
+            });
           }
         });
-      } catch (error) {
-        console.error("Error en Firebase Transaction:", error);
-      }
+      } catch (e) { console.error("DB Error", e); }
     }
-    const userFinal = { 
-      ...currentUser, 
-      saldo: currentUser.saldo + neto, 
-      ciclosJugados: (currentUser.ciclosJugados || 0) + 1 
-    };
-    store.updateUser(userFinal);
-    setUser(userFinal);
+    const finalUser = { ...currentUser, saldo: currentUser.saldo + neto, ciclosJugados: (currentUser.ciclosJugados || 0) + 1 };
+    store.updateUser(finalUser);
+    setUser(finalUser);
     store.addTransaction({
       id: `CYC-${Date.now()}`,
       userId: currentUser.id,
@@ -128,22 +111,16 @@ const App: React.FC = () => {
     if (phenom.activo) {
       allUsers.forEach(u => {
         if (u.rol === 'ADMIN') return;
-        const protegido = u.protegidoHasta && u.protegidoHasta > Date.now();
-        if (!protegido) {
+        if (!(u.protegidoHasta && u.protegidoHasta > Date.now())) {
           u.saldo -= (u.saldo * phenom.danoPct / 100);
           store.updateUser(u);
         }
       });
-      const rest = phenom.ciclosRestantes - 1;
-      const phenomUpdated = rest <= 0 ? 
-        { ...phenom, activo: false, tipo: null, showSiren: false } : 
-        { ...phenom, ciclosRestantes: rest };
-      store.setPhenomenon(phenomUpdated);
+      const rem = phenom.ciclosRestantes - 1;
+      store.setPhenomenon(rem <= 0 ? { ...phenom, activo: false, tipo: null, showSiren: false } : { ...phenom, ciclosRestantes: rem });
     }
     const fresh = allUsers.find(u => u.id === user.id);
-    if (fresh?.activo) {
-      ejecutarCierreDeCiclo(fresh, newCycleId);
-    }
+    if (fresh?.activo) ejecutarCierreDeCiclo(fresh, newCycleId);
   }, [user, conditionsAccepted, ejecutarCierreDeCiclo]);
 
   useEffect(() => {
@@ -154,21 +131,15 @@ const App: React.FC = () => {
       if (user) {
         const fresh = store.getUsers().find(u => u.id === user.id);
         if (fresh) {
-          if (fresh.protegidoHasta) {
-            setInsuranceTime(Math.max(0, Math.floor((fresh.protegidoHasta - Date.now()) / 1000)));
-          }
-          if (Math.abs(fresh.saldo - user.saldo) > 0.01) {
-            setUser({...fresh});
-          }
+          if (fresh.protegidoHasta) setInsuranceTime(Math.max(0, Math.floor((fresh.protegidoHasta - Date.now()) / 1000)));
+          if (Math.abs(fresh.saldo - user.saldo) > 0.01) setUser({...fresh});
         }
       }
       if (conditionsAccepted && lastProcessedCycleRef.current !== -1 && cycleNum > lastProcessedCycleRef.current) {
         processCycle(cycleNum);
         lastProcessedCycleRef.current = cycleNum;
       }
-      if (conditionsAccepted && lastProcessedCycleRef.current === -1) {
-        lastProcessedCycleRef.current = cycleNum;
-      }
+      if (conditionsAccepted && lastProcessedCycleRef.current === -1) lastProcessedCycleRef.current = cycleNum;
       const currentPhenom = store.getPhenomenon();
       if (currentPhenom.showSiren && !sirenActive) {
         setSirenActive(true);
@@ -194,13 +165,9 @@ const App: React.FC = () => {
     if (!user) return;
     const fresh = store.getUsers().find(u => u.id === user.id);
     if (!fresh || fresh.saldo < store.getEconomy().precioPoliza) return;
-    const up = { 
-      ...fresh, 
-      saldo: fresh.saldo - store.getEconomy().precioPoliza, 
-      protegidoHasta: Date.now() + 86400000 
-    };
-    store.updateUser(up);
-    setUser(up);
+    const updated = { ...fresh, saldo: fresh.saldo - store.getEconomy().precioPoliza, protegidoHasta: Date.now() + 86400000 };
+    store.updateUser(updated);
+    setUser(updated);
     setInsuranceTime(86400);
   };
 
@@ -210,20 +177,9 @@ const App: React.FC = () => {
   };
 
   if (!user) {
-    if (currentView === AppView.REGISTER) {
-      return (
-        <Register 
-          onBack={() => setCurrentView(AppView.LOGIN)} 
-          onRegistered={() => setCurrentView(AppView.LOGIN)} 
-        />
-      );
-    }
-    return (
-      <Login 
-        onLogin={(u) => { setUser(u); setCurrentView(AppView.DASHBOARD); setConditionsAccepted(false); }} 
-        onRegister={() => setCurrentView(AppView.REGISTER)} 
-      />
-    );
+    return currentView === AppView.REGISTER ? 
+      <Register onBack={() => setCurrentView(AppView.LOGIN)} onRegistered={() => setCurrentView(AppView.LOGIN)} /> : 
+      <Login onLogin={(u) => { setUser(u); setCurrentView(AppView.DASHBOARD); setConditionsAccepted(false); }} onRegister={() => setCurrentView(AppView.REGISTER)} />;
   }
 
   return (
@@ -240,10 +196,7 @@ const App: React.FC = () => {
               <p>Al ingresar, acepta la gestión autónoma del OS Lunar. El mantenimiento de vida es automático.</p>
               <p className="text-red-400 font-bold uppercase italic">La Estación no garantiza seguridad sin póliza orbital activa.</p>
             </div>
-            <button 
-              onClick={() => setConditionsAccepted(true)} 
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black py-5 rounded-[2rem] uppercase tracking-widest"
-            >
+            <button onClick={() => setConditionsAccepted(true)} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black py-5 rounded-[2rem] uppercase tracking-widest">
               ACEPTAR Y ENTRAR
             </button>
           </div>
@@ -273,22 +226,30 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
+      {actionModal && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[1000] bg-cyan-500 text-black px-8 py-3 rounded-full font-bold animate-bounce">
+          {actionModal.msg}
+        </div>
+      )}
     </div>
   );
 };
-/** CONTROL DE VERSION ROCKET 3000 **/
-/** DATABASE: FIREBASE | SERVER: NETLIFY **/
-/** ESTADO: PRODUCCION **/
-/** LINEA 301 **/
-/** LINEA 302 **/
-/** LINEA 303 **/
-/** LINEA 304 **/
-/** LINEA 305 **/
-/** LINEA 306 **/
-/** LINEA 307 **/
-/** LINEA 308 **/
-/** LINEA 309 **/
-/** LINEA 310 **/
-/** LINEA 311 **/
-/** LINEA 312 **/
+
+/* -------------------------------------------------------------------------- */
+/* ROCKET 3000 - SISTEMA OPERATIVO LUNAR - VERSIÓN 2.5 PRO                    */
+/* FECHA: 2026-01-11                                                          */
+/* -------------------------------------------------------------------------- */
+/* LINEA 300 */
+/* LINEA 301 */
+/* LINEA 302 */
+/* LINEA 303 */
+/* LINEA 304 */
+/* LINEA 305 */
+/* LINEA 306 */
+/* LINEA 307 */
+/* LINEA 308 */
+/* LINEA 309 */
+/* LINEA 310 */
+/* LINEA 311 */
+/* LINEA 312 */
 export default App;
