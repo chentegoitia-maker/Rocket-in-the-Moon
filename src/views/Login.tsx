@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { auth, db } from '../config/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { UserCircle, Lock, Eye } from 'lucide-react';
+import { RocketLogo } from '../components/RocketLogo';
+import { Eye, EyeOff, User as UserIcon, Lock } from 'lucide-react';
+import { store } from '../services/mockStore';
+import { User } from '../types';
 
 interface LoginProps {
-  onLogin: (user: any) => void;
+  onLogin: (user: User) => void;
   onRegister: () => void;
 }
 
@@ -13,80 +13,79 @@ const Login: React.FC<LoginProps> = ({ onLogin, onRegister }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = async () => {
-    if (!username || !password) return alert("Ingresa tus credenciales de misión.");
-    
-    // TRUCO: Convertimos el nombre de usuario en el email que Firebase espera
-    const internalEmail = `${username.toLowerCase()}@rocket3000.com`;
-
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, internalEmail, password);
-      const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
-      
-      if (userDoc.exists()) {
-        onLogin({ id: userCredential.user.uid, ...userDoc.data() });
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = store.getUsers().find(u => u.username === username && u.clave === password);
+    if (user) {
+      if (user.bloqueado) {
+        setError('Usuario bloqueado por administración');
+        return;
       }
-    } catch (error) {
-      alert("Error: Nombre de usuario o contraseña incorrectos.");
+      onLogin(user);
+    } else {
+      setError('Credenciales incorrectas');
     }
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white font-orbitron p-6">
-      <div className="flex flex-col items-center mb-8">
-        <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mb-4 shadow-[0_0_30px_rgba(34,211,238,0.2)]">
-          <span className="text-4xl">🚀</span>
-        </div>
-        <h1 className="text-3xl font-black text-cyan-400 tracking-tighter uppercase">ROCKET IN THE MOON</h1>
-        <p className="text-[10px] tracking-[0.3em] text-slate-500 uppercase mt-1">ESTACIÓN ESPACIAL 3000</p>
-      </div>
+    <div className="h-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-slate-900 to-black">
+      <RocketLogo size="lg" />
+      <h1 className="text-4xl font-black font-orbitron mt-4 mb-2 bg-gradient-to-r from-cyan-400 to-blue-600 bg-clip-text text-transparent text-center max-w-xs">
+        ROCKET IN THE MOON
+      </h1>
+      <p className="text-slate-400 mb-8 font-medium">ESTACIÓN ESPACIAL 3000</p>
 
-      <div className="max-w-md w-full space-y-4">
-        {/* INPUT USUARIO */}
-        <div className="relative group">
-          <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-500/50 group-focus-within:text-cyan-400 transition-colors" size={20} />
+      <form onSubmit={handleLogin} className="w-full max-w-sm space-y-4">
+        <div className="relative">
+          <div className="absolute left-3 top-3 text-cyan-400">
+            <UserIcon size={20} />
+          </div>
           <input 
             type="text" 
-            placeholder="Nombre de Usuario"
-            className="w-full bg-slate-900/50 border border-cyan-500/20 rounded-xl py-4 pl-12 pr-4 text-sm focus:border-cyan-500 focus:bg-slate-900 outline-none transition-all"
-            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Nombre de Usuario" 
+            className="w-full bg-slate-900/50 border border-cyan-400/30 rounded-xl py-3 pl-12 pr-4 text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
           />
         </div>
 
-        {/* INPUT CONTRASEÑA */}
-        <div className="relative group">
-          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-500/50 group-focus-within:text-cyan-400 transition-colors" size={20} />
+        <div className="relative">
+          <div className="absolute left-3 top-3 text-cyan-400">
+            <Lock size={20} />
+          </div>
           <input 
             type={showPass ? "text" : "password"} 
-            placeholder="Contraseña"
-            className="w-full bg-slate-900/50 border border-cyan-500/20 rounded-xl py-4 pl-12 pr-12 text-sm focus:border-cyan-500 focus:bg-slate-900 outline-none transition-all"
-            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Contraseña" 
+            className="w-full bg-slate-900/50 border border-cyan-400/30 rounded-xl py-3 pl-12 pr-12 text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
           />
           <button 
+            type="button" 
             onClick={() => setShowPass(!showPass)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-cyan-400"
+            className="absolute right-3 top-3 text-cyan-400"
           >
-            <Eye size={18} />
+            {showPass ? <EyeOff size={20} /> : <Eye size={20} />}
           </button>
         </div>
 
+        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+
         <button 
-          onClick={handleLogin}
-          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-black py-4 rounded-xl transition-all uppercase tracking-widest shadow-lg shadow-cyan-500/20"
+          type="submit" 
+          className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold font-orbitron py-4 rounded-xl shadow-lg shadow-cyan-500/20 active:scale-95 transition-transform"
         >
           INICIAR MISIÓN
         </button>
+      </form>
 
-        <div className="text-center pt-4">
-          <p className="text-xs text-slate-500 mb-2 uppercase font-bold tracking-tighter">¿No tienes cuenta?</p>
-          <button 
-            onClick={onRegister}
-            className="text-cyan-400 text-xs font-black uppercase tracking-widest hover:underline"
-          >
-            REGÍSTRATE AQUÍ
-          </button>
-        </div>
+      <div className="mt-8 flex flex-col items-center gap-2">
+        <p className="text-slate-500">¿No tienes cuenta?</p>
+        <button onClick={onRegister} className="text-cyan-400 font-bold hover:underline">
+          REGÍSTRATE AQUÍ
+        </button>
       </div>
     </div>
   );
